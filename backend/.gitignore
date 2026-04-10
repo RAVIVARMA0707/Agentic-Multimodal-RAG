@@ -1,0 +1,74 @@
+################################
+# Environment variables / secrets
+################################
+.env
+*.env
+backend/.env
+frontend/.env
+
+################################
+# Virtual environments
+################################
+.venv/
+venv/
+env/
+backend/.venv/
+backend/venv/
+
+################################
+# Python cache / build artifacts
+################################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.pytype/
+
+################################
+# Build / packaging
+################################
+build/
+dist/
+*.egg-info/
+.eggs/
+
+################################
+# Streamlit
+################################
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+################################
+# Logs & temp files
+################################
+*.log
+*.tmp
+*.temp
+
+################################
+# IDEs / Editors
+################################
+.vscode/
+.idea/
+*.swp
+*.swo
+
+################################
+# OS files
+################################
+.DS_Store
+Thumbs.db
+
+################################
+# Database files (local only)
+################################
+*.sqlite3
+*.db
+
+################################
+# Data files (adjust if needed)
+################################
+data/raw/
+data/tmp/
