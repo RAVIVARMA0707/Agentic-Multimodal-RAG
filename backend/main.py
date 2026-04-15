@@ -1,6 +1,6 @@
-def main():
-    print("Hello from agentic-multimodal-rag!")
+from fastapi import FastAPI
+from src.api.v1.routes.query_routes import router
 
+app = FastAPI()
 
-if __name__ == "__main__":
-    main()
+app.include_router(router,prefix="/api/v1")

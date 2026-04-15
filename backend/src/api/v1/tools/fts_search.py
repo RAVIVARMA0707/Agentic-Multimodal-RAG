@@ -3,51 +3,55 @@ from dotenv import load_dotenv
 import psycopg
 from psycopg.rows import dict_row
 
-load_dotenv()
 
-# PGVector connection string uses SQLAlchemy format: postgresql+psycopg://...
-# psycopg.connect needs standard format: postgresql://...
+load_dotenv()
+# Clean up the connection string for psycopg
 _raw_conn = os.getenv("PG_CONNECTION_STRING", "").replace("postgresql+psycopg", "postgresql")
 
-
-def fts_search(query: str, k: int = 5, collection_name: str = "insurance_claim_collection") -> list[dict]:
-    """
-    Keyword search against stored chunks using PostgreSQL tsvector / tsquery / ts_rank.
-
-    Args:
-        query:           User query string (plain text, any format)
-        k:               Number of top results to return
-        collection_name: PGVector collection to search
-
-    Returns:
-        List of dicts with 'content', 'metadata', and 'fts_rank'
-    """
+def fts_search(query: str, k: int = 5) -> list[dict]:
     sql = """
         SELECT
-            e.document                                               AS content,
-            e.cmetadata                                              AS metadata,
+            mc.content,
+            mc.chunk_type,
+            mc.metadata,
+            mc.page_number,
+            mc.image_path,
+            d.filename AS source_document,
             ts_rank(
-                to_tsvector('english', e.document),
-                plainto_tsquery('english', %(query)s)
-            )                                                        AS fts_rank
-        FROM  langchain_pg_embedding  e
-        JOIN  langchain_pg_collection c ON c.uuid = e.collection_id
-        WHERE c.name = %(collection)s
-          AND to_tsvector('english', e.document)
-              @@ plainto_tsquery('english', %(query)s)
+                to_tsvector('english', mc.content),
+                websearch_to_tsquery('english', %(query)s)
+            ) AS fts_rank
+        FROM multimodal_chunks mc
+        JOIN documents d ON mc.doc_id = d.id
+        WHERE to_tsvector('english', mc.content) 
+              @@ websearch_to_tsquery('english', %(query)s)
         ORDER BY fts_rank DESC
         LIMIT %(k)s;
     """
-    with psycopg.connect(_raw_conn, row_factory=dict_row) as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, {"query": query, "collection": collection_name, "k": k})
-            rows = cur.fetchall()
+    
+    results = []
+    try:
+        with psycopg.connect(_raw_conn, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, {"query": query, "k": k})
+                rows = cur.fetchall()
 
-    return [
-        {
-            "content":  row["content"],
-            "metadata": row["metadata"],
-            "fts_rank": round(float(row["fts_rank"]), 4),
-        }
-        for row in rows
-    ]
+                for row in rows:
+                    # Combine native columns and the metadata JSONB for a clean output
+                    result_metadata = row["metadata"] if row["metadata"] else {}
+                    result_metadata.update({
+                        "source": row["source_document"],
+                        "page": row["page_number"],
+                        "type": row["chunk_type"],
+                        "image_path": row["image_path"]
+                    })
+
+                    results.append({
+                        "content": row["content"],
+                        "metadata": result_metadata,
+                        "fts_rank": round(float(row["fts_rank"]), 4),
+                    })
+    except Exception as e:
+        print(f"Database error: {e}")
+        
+    return results
