@@ -16,5 +16,16 @@ class AIResponse(BaseModel):
     policy_citations: str = Field(description="Give the Policy Citation")
     page_no: str = Field(description="The page number in the metadata")
     document_name: str = Field(description="Name of the document used")
-    image_path: Optional[str] = Field(default=None, description="Path to the image if the chunk is an image")
+    image_path: Optional[str] = Field(default=None, description="Path to the image ")
     sql_query_executed: Optional[str] = Field(default=None, description="The SQL query executed (for product/database queries)")
+
+class nl2sqlResponse(BaseModel):
+    nl2sql_answer: str = Field(description="The answer from executing the SQL query")
+    generated_sql_query: str = Field(description="The generated SQL query")
+
+class RoutingDecision(BaseModel):
+    needs_sql: bool
+    needs_rag: bool
+    sql_query: str | None
+    rag_query: str | None
+    not_valid_query: bool

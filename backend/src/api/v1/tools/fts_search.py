@@ -42,14 +42,14 @@ def fts_search(query: str, k: int = 5) -> list[dict]:
                     result_metadata.update({
                         "source": row["source_document"],
                         "page": row["page_number"],
-                        "type": row["chunk_type"],
-                        "image_path": row["image_path"]
+                        "type": row["chunk_type"]
                     })
 
                     results.append({
                         "content": row["content"],
                         "metadata": result_metadata,
                         "fts_rank": round(float(row["fts_rank"]), 4),
+                        "image_path": row["image_path"]
                     })
     except Exception as e:
         print(f"Database error: {e}")
