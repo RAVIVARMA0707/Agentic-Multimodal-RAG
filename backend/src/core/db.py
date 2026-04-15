@@ -8,7 +8,7 @@ import hashlib
 import json
 import os
 import pathlib
-
+import shutil
 import psycopg
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
@@ -331,3 +331,21 @@ def get_sql_database() -> SQLDatabase:
         include_tables=["products", "categories", "orders", "order_items"],
         sample_rows_in_table_info=2,
     )
+
+
+def clear_all_ingested_data():
+    """
+    Clears all previously ingested documents, chunks, and stored images.
+    Called before a fresh ingestion batch.
+    """
+    with get_db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM multimodal_chunks")
+            cur.execute("DELETE FROM documents")
+        conn.commit()
+
+    # Clear stored images
+    img_dir = pathlib.Path("data/images")
+    if img_dir.exists():
+        shutil.rmtree(img_dir)
+        img_dir.mkdir(parents=True, exist_ok=True)
