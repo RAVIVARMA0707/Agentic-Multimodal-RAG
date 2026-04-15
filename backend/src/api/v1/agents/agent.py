@@ -234,6 +234,8 @@ def llm_route_query(state: RAGState) -> RAGState:
 def retrieval_gate(state: RAGState) -> str:
     if len(state["retrieved_docs"]) > 0 :
         return "RERANK"
+    elif not state["needs_rag"]:
+        return "generate_answer"
     elif len(state["retrieved_docs"]) == 0:
         return "rewrite_query"
 
@@ -273,6 +275,7 @@ def validate_reranker_node(state: RAGState) -> str:
         return "no_answer_Found"
 
 def rewrite_node(state: RAGState) -> RAGState:
+
     # the node rewite a user query for better answer
     system_prompt = """
     You are a query rewriting agent for an agentic multimodal RAG system.
@@ -387,7 +390,8 @@ def build_rag_graph():
     retrieval_gate,
     {
         "RERANK": "reranker",
-        "rewrite_query": "rewrite"
+        "rewrite_query": "rewrite",
+        "generate_answer": "generate_answer"
     }
     )
     graph.add_edge("nl2sql","join")
@@ -426,6 +430,6 @@ def run_rag_agent(QueryRequest) -> AIResponse:
     # print(rag_graph.get_graph().draw_mermaid())
 
     final_state = rag_graph.invoke(initial_state)
-    print(f"attempts: {final_state['attempts']}")
+    # print(f"attempts: {final_state['attempts']}")
     return final_state['answer']
 
