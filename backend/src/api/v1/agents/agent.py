@@ -8,9 +8,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph,START, END
 from langchain_core.runnables.graph import MermaidDrawMethod
 from src.api.v1.schemas.query_schema import AIResponse
-from src.api.v1.tools.vector_search import vector_query_documents
-from src.api.v1.tools.fts_search import fts_query_documents
-from src.api.v1.tools.hybrid_search import hybrid_query_documents
+from src.api.v1.tools.vector_search import vector_search
+from src.api.v1.tools.fts_search import fts_search
+from src.api.v1.tools.hybrid_search import hybrid_search
 from src.core.db import get_sql_database
 
 load_dotenv(override=True)
@@ -34,7 +34,7 @@ class RAGState(TypedDict):
 def llm_route_query(state: RAGState) -> RAGState:
     query = state["query"][-1]
     system_prompt = """
-    You are a query routing agent for an agentic multimodal RAG system, designed for HR department and product information from the company's database.
+    You are a query routing agent for an agentic multimodal RAG system, designed for Reliance Financial Report and product information from the company's database.
 
     Classify the query into EXACTLY one label:
     VECTOR_SEARCH
@@ -71,17 +71,17 @@ def llm_route_query(state: RAGState) -> RAGState:
     if decision == "VECTOR_SEARCH":
         return {
             **state,
-            "retrieved_docs": vector_query_documents(query, state["k"])
+            "retrieved_docs": vector_search(query, k=state["k"])
         }
     elif decision == "FTS_SEARCH":
         return {
             **state,
-            "retrieved_docs": fts_query_documents(query, state["k"])
+            "retrieved_docs": fts_search(query, state["k"])
         }
     elif decision == "HYBRID_SEARCH":
         return {
             **state,
-            "retrieved_docs": hybrid_query_documents(query, state["k"])
+            "retrieved_docs": hybrid_search(query, state["k"])
 
         }
     elif decision == "SQL_QUERY":
@@ -258,7 +258,10 @@ def generate_answer_node(state: RAGState) -> RAGState:
 
     if(not state["is_sql_query"] and not state["not_valid_query"] and len(state["reranked_docs"]) > 0):
         context = "\n\n".join([
-            f"[Source: {doc["metadata"].get('document_name', doc["metadata"].get('source', 'unknown'))} | Page: {doc["metadata"].get('page_label', doc["metadata"].get('page', '?'))}]\n{doc["content"]}"
+            f"[Source: {doc['metadata'].get('document_name', doc['metadata'].get('source', 'unknown'))} "
+            f"| Page: {doc['metadata'].get('page_label', doc['metadata'].get('page', '?'))}"
+            f"{f' | Image: {doc['image_path']}' if doc.get('image_path') else ''}]\n"
+            f"{doc['content']}"
             for doc in state["reranked_docs"]
         ])
         prompt = ChatPromptTemplate.from_messages([
@@ -358,6 +361,6 @@ def run_rag_agent(QueryRequest) -> AIResponse:
     print(rag_graph.get_graph().draw_mermaid())
 
     final_state = rag_graph.invoke(initial_state)
-    print(final_state)
+    # print(final_state)
     return final_state["answer"]
 

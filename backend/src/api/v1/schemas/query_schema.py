@@ -16,4 +16,5 @@ class AIResponse(BaseModel):
     policy_citations: str = Field(description="Give the Policy Citation")
     page_no: str = Field(description="The page number in the metadata")
     document_name: str = Field(description="Name of the document used")
+    image_path: Optional[str] = Field(default=None, description="Path to the image if the chunk is an image")
     sql_query_executed: Optional[str] = Field(default=None, description="The SQL query executed (for product/database queries)")
