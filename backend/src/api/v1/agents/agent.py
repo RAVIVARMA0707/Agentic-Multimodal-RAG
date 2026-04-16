@@ -38,13 +38,11 @@ class RAGState(TypedDict):
 def router_agent_node(state: RAGState) -> RAGState:
     # This node uses Gemini to classify the query and route to the appropriate retrieval method or handle invalid queries.
     system_prompt = """    
-    You are a routing and query-decomposition agent.for an agentic multimodal RAG system, designed for Reliance Financial Report and product information from the company's database.
-
-    Classify the query into EXACTLY one label:
+    You are a routing and query-decomposition agent for an agentic multimodal RAG system, designed for Smart Banking in the BFSI domain and product information from the company's database. Classify the query into EXACTLY one label:
+    
     1. Whether SQL data is required if the query is related to the product information in the database and requires a SQL query to retrieve the answer.
     2. Whether document (RAG) search is required for generic information requests that can be answered by retrieving relevant chunks from the document corpus.
     3. Not related to the domain or cannot be answered by our system.   
-
 
     Rules:
     - Split without changing the meaning of the original query.
@@ -178,8 +176,11 @@ def llm_route_query(state: RAGState) -> RAGState:
 
     query = state["rag_query"][-1]
     system_prompt = """
-    You are a query routing agent for an agentic multimodal RAG system, designed for Reliance Financial Report.
-
+    You are a query routing agent for an agentic multimodal RAG system, designed for A Smart Banking to the BFSI domain.
+    The RAG is about 
+    This document is intended for use by Relationship Managers, Customer Service Officers, and Compliance Staff. 
+    It contains product terms, interest rates, eligibility criteria, charges, and regulatory disclosures for all retail banking products offered by NorthStar Bank as of April 2026.
+    
     Classify the query into EXACTLY one label:
     VECTOR_SEARCH
     FTS_SEARCH
@@ -212,7 +213,7 @@ def llm_route_query(state: RAGState) -> RAGState:
     if decision == "VECTOR_SEARCH":
         return {
             # **state,
-            "retrieved_docs": vector_search(query, k=state["k"]),
+            "retrieved_docs": vector_search(query, state["k"]),
             "attempts": state["attempts"] + 1,
         }
     elif decision == "FTS_SEARCH":
@@ -252,7 +253,7 @@ def rerank_node(state: RAGState) -> RAGState:
         model="rerank-english-v3.0",
         query=state["rag_query"][-1],
         documents=[doc["content"] for doc in docs],
-        top_n=3
+        top_n=20
     )
 
     # Map Cohere result indices back to LangChain Document objects
@@ -308,6 +309,7 @@ def generate_answer_node(state: RAGState) -> RAGState:
     structured_llm = llm.with_structured_output(AIResponse)
     chunk_context=""
     if(not state["not_valid_query"] and not state["no_answer_found"]):
+        print(state["reranked_docs"][0])
         if len(state["reranked_docs"]) > 0:
             chunk_context = "\n\n".join([
                 f"[Source: {doc['metadata'].get('document_name', doc['metadata'].get('source', 'unknown'))} "
@@ -417,7 +419,7 @@ def run_rag_agent(QueryRequest) -> AIResponse:
         "reranked_docs": [],
         "answer": None,
         "nl2sql_answer": None,
-        "k": QueryRequest.k,
+        "k": 20,
         "attempts": 0,
         "not_valid_query": False,
         "no_answer_found": False,

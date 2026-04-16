@@ -1,3 +1,5 @@
+import os
+
 import streamlit as st
 import requests
 
@@ -23,6 +25,18 @@ with st.sidebar:
     st.title("🧠 AI Assistant")
     page = st.radio("Navigation", ["Chat", "Admin"])
     st.divider()
+
+
+
+def backend_image_path_to_abs(image_path: str) -> str | None:
+    if not image_path:
+        return None
+
+    filename = image_path.replace("\\", "/").split("/")[-1]
+
+    return os.path.normpath(
+        f"C:/agentic-ai-course/Agentic-Multimodal-RAG/backend/data/images/{filename}"
+    )
 
 # =========================================================
 # 💬 CHAT PAGE
@@ -81,12 +95,15 @@ if page == "Chat":
                 st.markdown(msg.get("answer", ""))
 
                 # Image (logo / picture) if present ✅
-                if msg.get("image_path"):
-                    st.image(
-                        msg["image_path"],
-                        use_column_width=True,
-                        caption="Retrieved image from document"
-                    )
+                if msg.get("image_path"):                    
+                    abs_path = backend_image_path_to_abs(msg["image_path"])
+                    if abs_path and os.path.exists(abs_path):
+                        st.image(
+                            abs_path,
+                            width=300,
+                            caption="Retrieved image from document"
+                        )
+
 
                 # Metadata (independent rendering so it never vanishes)
                 meta_parts = []
@@ -137,13 +154,15 @@ if page == "Chat":
 
                     # Render immediately
                     st.markdown(answer)
+                    if image_path:                        
+                        abs_path = backend_image_path_to_abs(image_path)
+                        if abs_path and os.path.exists(abs_path):
+                            st.image(
+                                abs_path,
+                                width=300,
+                                caption="Retrieved image from document"
+                            )
 
-                    if image_path:
-                        st.image(
-                            image_path,
-                            use_column_width=True,
-                            caption="Retrieved image from document"
-                        )
 
                     meta_parts = []
                     if doc_name:
