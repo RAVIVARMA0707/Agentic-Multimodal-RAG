@@ -38,18 +38,21 @@ class RAGState(TypedDict):
 def router_agent_node(state: RAGState) -> RAGState:
     # This node uses Gemini to classify the query and route to the appropriate retrieval method or handle invalid queries.
     system_prompt = """    
-    You are a routing and query-decomposition agent for an agentic multimodal RAG system, designed for Smart Banking in the BFSI domain and product information from the company's database. Classify the query into EXACTLY one label:
+    You are a routing and query-decomposition agent for an agentic multimodal RAG system, designed for Smart Banking in the BFSI domain and banking datas such as customer accounts,card transactions,credit cards,fixed deposits,loan accounts and transactions from the bank's database. Classify the query into EXACTLY one label:
     
-    1. Whether SQL data is required if the query is related to the product information in the database and requires a SQL query to retrieve the answer.
+    1. Whether SQL data is required if the query is related to the banking information in the database and requires a SQL query to retrieve the answer.
     2. Whether document (RAG) search is required for generic information requests that can be answered by retrieving relevant chunks from the document corpus.
     3. Not related to the domain or cannot be answered by our system.   
+    4. if the user asks structure information of the db, make that it not_valid_query true.
 
     Rules:
+    -Only answer to queries related to Smart Banking and the banking information in the database. For unrelated queries, classify as not valid query.
     - Split without changing the meaning of the original query.
     - If only SQL is needed, rag_query must be null
     - If only RAG is needed, sql_query must be null
     - If both are needed, split the intent clearly
     - Do not explain anything 
+    - Don't answer the query if it is not related to the smart banking or banking information. simply classify it as not valid query.
     """
     query = state["query"]
     prompt = ChatPromptTemplate.from_messages([
@@ -110,7 +113,8 @@ def nl2sql_node(state: RAGState) -> RAGState:
             to cast a wider net when the exact term may not match.
 
             Database schema:
-            {schema}"""
+            {schema}
+            """
         ),
         ("human", "Question: {question}")
     ])
@@ -253,7 +257,7 @@ def rerank_node(state: RAGState) -> RAGState:
         model="rerank-english-v3.0",
         query=state["rag_query"][-1],
         documents=[doc["content"] for doc in docs],
-        top_n=20
+        top_n=10
     )
 
     # Map Cohere result indices back to LangChain Document objects
@@ -309,7 +313,7 @@ def generate_answer_node(state: RAGState) -> RAGState:
     structured_llm = llm.with_structured_output(AIResponse)
     chunk_context=""
     if(not state["not_valid_query"] and not state["no_answer_found"]):
-        print(state["reranked_docs"][0])
+        # print(state["reranked_docs"][0])
         if len(state["reranked_docs"]) > 0:
             chunk_context = "\n\n".join([
                 f"[Source: {doc['metadata'].get('document_name', doc['metadata'].get('source', 'unknown'))} "
@@ -331,6 +335,10 @@ def generate_answer_node(state: RAGState) -> RAGState:
             "just answer as if you know the information. "
             "If the information is not available, say 'I don't have that information at the moment.' "
             "Always cite the source document and page number at the end."
+            "Formate the answer good for reading."
+            "Add bullet point,line breaks,bold fonts,italic,headings such things to make the reading experience better."
+            "Make the answer concise and to the point. Don't add any information that is not in the context."
+            "The amount should treated in indian rupees."
         ),
         ("human", "Context:\n{chunk_context}\n\nQuestion: {query}")
         ])
@@ -344,7 +352,7 @@ def generate_answer_node(state: RAGState) -> RAGState:
     elif(state["not_valid_query"]):
         response = AIResponse(
             query=state["query"],
-            answer="The query is not relevant to our domain. Please ask a different question.",
+            answer="The query is not appropriate. Please ask a different question related to Smart Banking.",
             policy_citations="N/A",
             page_no="N/A",
             document_name="N/A",
