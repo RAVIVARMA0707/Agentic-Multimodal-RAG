@@ -5,9 +5,8 @@ from typing import Optional
 class QueryRequest(BaseModel):
     query: str = Field(..., description="User query")
     k: int = Field(5, ge=1, le=20, description="Number of chunks to retrieve")
-    chunk_type: Optional[str] = Field(
-        None, description="Filter by content type: 'text', 'table', or 'image'"
-    )
+    session_id: str = Field(..., description="Session ID for thread consistency")
+
 
 
 class AIResponse(BaseModel):

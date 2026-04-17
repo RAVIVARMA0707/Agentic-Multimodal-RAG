@@ -12,12 +12,15 @@ from src.api.v1.tools.vector_search import vector_search
 from src.api.v1.tools.fts_search import fts_search
 from src.api.v1.tools.hybrid_search import hybrid_search
 from src.core.db import get_sql_database
+from langgraph.checkpoint.memory import InMemorySaver
 
 load_dotenv(override=True)
 
 os.environ["PYPPETEER_CHROMIUM_REVISION"] = "1263111" 
 
 llm=ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite-preview")
+
+memory = InMemorySaver()
 
 class RAGState(TypedDict):
     query: str
@@ -33,29 +36,61 @@ class RAGState(TypedDict):
     needs_rag: bool # Whether RAG data is needed
     sql_query: str 
     rag_query: List[str]
+    history: List[dict]  
 
+def format_history_for_router(history: list[dict]) -> str:
+    if not history:
+        return "No prior conversation."
+
+    lines = []
+    for i, turn in enumerate(history, start=1):
+        lines.append(
+            f"Turn {i}:\n"
+            f"User: {turn['user_query']}\n"
+        )
+    return "\n\n".join(lines)
 
 def router_agent_node(state: RAGState) -> RAGState:
     # This node uses Gemini to classify the query and route to the appropriate retrieval method or handle invalid queries.
-    system_prompt = """    
-    You are a routing and query-decomposition agent for an agentic multimodal RAG system, designed for Smart Banking in the BFSI domain and product information from the company's database. Classify the query into EXACTLY one label:
+
+    history_items = state.get("history", [])
+    recent_history = history_items
+
+    # print(recent_history)
+
+    history_text = format_history_for_router(recent_history)
+
+    system_prompt = f"""    
+    You are a routing and query-decomposition agent for an agentic multimodal RAG system, designed for Smart Banking in the BFSI domain and banking datas such as customer accounts,card transactions,credit cards,fixed deposits,loan accounts and transactions from the bank's database. Classify the query into EXACTLY one label:
     
-    1. Whether SQL data is required if the query is related to the product information in the database and requires a SQL query to retrieve the answer.
+    Recent conversation history (for reference resolution only):
+    {history_text}
+
+    Your task is to determine:
+    1. Whether SQL data is required if the query is related to the banking information in the database and requires a SQL query to retrieve the answer.
     2. Whether document (RAG) search is required for generic information requests that can be answered by retrieving relevant chunks from the document corpus.
     3. Not related to the domain or cannot be answered by our system.   
+    4. if the user asks structure information of the db, make that it not_valid_query true.
 
     Rules:
+    -Only answer to queries related to Smart Banking and the banking information in the database. For unrelated queries, classify as not valid query.
+    -use recent conversation history if any data needed to frame the query. but don't be biased by the history if the current query is clear and specific.
+    - If a SQL query refers to "my", account and the account or loan identifier is not explicitly provided and multiple records could exist, so make the sql_query same like user query for the sql node without changing the meaning.
     - Split without changing the meaning of the original query.
-    - If only SQL is needed, rag_query must be null
-    - If only RAG is needed, sql_query must be null
-    - If both are needed, split the intent clearly
+    - For sql query dont generate the raw sql query, just give the user query suitable for the sql node to generate the sql query.
+    - If only SQL is needed, rag_query must be null.
+    - If only RAG is needed, sql_query must be null.
+    - If both are needed, split the intent clearly.
     - Do not explain anything 
+    - Don't answer the query if it is not related to the smart banking or banking information. simply classify it as not valid query.
     """
+    # print(system_prompt)
     query = state["query"]
     prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             ("human", "User Query:\n{query}")
         ])
+
 
     structured_llm = llm.with_structured_output(RoutingDecision)
     chain = prompt | structured_llm
@@ -92,9 +127,11 @@ def nl2sql_node(state: RAGState) -> RAGState:
         (
             "system",
             """You are a PostgreSQL expert. Given the database schema below, 
-            write a single valid SELECT query that answers the user's question.
+            write a single valid SELECT query that answers the user's question if has all necessary information.
 
             Rules:
+            - If a query refers to "my", account and the account or loan identifier is not explicitly provided and multiple records could exist. so, ask the user to provide their account number or loan number to get the specific information.     
+            - IF you dont have enough information to generate a SQL query that can retrieve the answer, simply say "I don't have enough information to generate a SQL query. Please provide more details." and do not attempt to generate a SQL query.        
             - Return ONLY the raw SQL — no explanation, no markdown fences, no backticks.
             - Use only the tables and columns present in the schema.
             - Do NOT generate INSERT, UPDATE, DELETE, DROP, or any DML/DDL statements.
@@ -110,7 +147,8 @@ def nl2sql_node(state: RAGState) -> RAGState:
             to cast a wider net when the exact term may not match.
 
             Database schema:
-            {schema}"""
+            {schema}
+            """
         ),
         ("human", "Question: {question}")
     ])
@@ -128,6 +166,7 @@ def nl2sql_node(state: RAGState) -> RAGState:
             for p in content
         )
     generated_sql = content.strip().strip("```").strip()
+    print(f"[nl2sql_node] Generated SQL:\n{generated_sql}")
     if generated_sql.lower().startswith("sql"):
         generated_sql = generated_sql[3:].strip()
 
@@ -145,6 +184,7 @@ def nl2sql_node(state: RAGState) -> RAGState:
             "system",
             "You are a helpful data analyst. Answer the user's question using "
             "the SQL query results below. Be concise and format numbers/lists clearly. "
+            "if the sql used is like I don't have enough information to generate a SQL query. Please provide more details., then answer like that I don't have enough information to answer the question. Please provide more details."
         ),
         (
             "human",
@@ -253,7 +293,7 @@ def rerank_node(state: RAGState) -> RAGState:
         model="rerank-english-v3.0",
         query=state["rag_query"][-1],
         documents=[doc["content"] for doc in docs],
-        top_n=20
+        top_n=10
     )
 
     # Map Cohere result indices back to LangChain Document objects
@@ -309,7 +349,7 @@ def generate_answer_node(state: RAGState) -> RAGState:
     structured_llm = llm.with_structured_output(AIResponse)
     chunk_context=""
     if(not state["not_valid_query"] and not state["no_answer_found"]):
-        print(state["reranked_docs"][0])
+        # print(state["reranked_docs"][0])
         if len(state["reranked_docs"]) > 0:
             chunk_context = "\n\n".join([
                 f"[Source: {doc['metadata'].get('document_name', doc['metadata'].get('source', 'unknown'))} "
@@ -331,6 +371,10 @@ def generate_answer_node(state: RAGState) -> RAGState:
             "just answer as if you know the information. "
             "If the information is not available, say 'I don't have that information at the moment.' "
             "Always cite the source document and page number at the end."
+            "Formate the answer good for reading."
+            "Add bullet point,line breaks,bold fonts,italic,headings such things to make the reading experience better."
+            "Make the answer concise and to the point. Don't add any information that is not in the context."
+            "The amount should treated in indian rupees."
         ),
         ("human", "Context:\n{chunk_context}\n\nQuestion: {query}")
         ])
@@ -338,13 +382,20 @@ def generate_answer_node(state: RAGState) -> RAGState:
         chain = prompt | structured_llm
         result = chain.invoke({"chunk_context": chunk_context, "query": state["query"]})
 
+        new_history_entry = {
+        "user_query": state["query"]
+        }
+
         print(f"[generate_answer_node] Answer generated.")
-        return {"answer": result.model_dump()}
+        return {
+            "answer": result.model_dump(),
+            "history": state.get("history", []) + [new_history_entry]
+        }
     
     elif(state["not_valid_query"]):
         response = AIResponse(
             query=state["query"],
-            answer="The query is not relevant to our domain. Please ask a different question.",
+            answer="The query is not appropriate. Please ask a different question related to Smart Banking.",
             policy_citations="N/A",
             page_no="N/A",
             document_name="N/A",
@@ -410,9 +461,10 @@ def build_rag_graph():
     graph.add_edge("join", "generate_answer")
     graph.add_edge("generate_answer", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=memory)
 
 def run_rag_agent(QueryRequest) -> AIResponse:
+    print("Session ID:", QueryRequest.session_id)
     initial_state: RAGState = {
         "query": QueryRequest.query,
         "retrieved_docs": [],
@@ -425,13 +477,21 @@ def run_rag_agent(QueryRequest) -> AIResponse:
         "no_answer_found": False,
         "is_sql_query": False,
         "sql_query":"",
-        "rag_query":[QueryRequest.query]
+        "rag_query":[]
     }
 
     rag_graph = build_rag_graph()
     # print(rag_graph.get_graph().draw_mermaid())
 
-    final_state = rag_graph.invoke(initial_state)
-    # print(f"attempts: {final_state['attempts']}")
+    final_state = rag_graph.invoke(
+    initial_state,
+    config={
+        "configurable": {
+            "thread_id": QueryRequest.session_id 
+        }
+    }
+)
+    # print("history:",final_state["history"])
+
     return final_state['answer']
 

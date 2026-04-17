@@ -49,7 +49,10 @@ if page == "Chat":
     # SESSION STATE INIT
     # ---------------------------
     if "chat_sessions" not in st.session_state:
-        st.session_state.chat_sessions = {"Chat 1": []}
+        st.session_state.chat_sessions = {"Chat 1": {
+            "messages": [],
+            "session_id": "chat_1"
+        }}
         st.session_state.current_chat = "Chat 1"
 
     # ---------------------------
@@ -59,9 +62,15 @@ if page == "Chat":
         st.markdown("### 💬 Chats")
 
         if st.button("New Chat"):
-            new_chat = f"Chat {len(st.session_state.chat_sessions) + 1}"
-            st.session_state.chat_sessions[new_chat] = []
-            st.session_state.current_chat = new_chat
+            chat_number = len(st.session_state.chat_sessions) + 1
+            chat_name = f"Chat {chat_number}"
+
+            st.session_state.chat_sessions[chat_name] = {
+                "messages": [],
+                "session_id": f"chat_{chat_number}"  # ✅ backend thread_id
+            }
+
+            st.session_state.current_chat = chat_name
 
         for chat in st.session_state.chat_sessions:
             if st.button(chat):
@@ -71,7 +80,9 @@ if page == "Chat":
     # LOAD CURRENT CHAT
     # ---------------------------
     current_chat = st.session_state.current_chat
-    messages = st.session_state.chat_sessions[current_chat]
+    chat_data = st.session_state.chat_sessions[current_chat]
+    messages = chat_data["messages"]
+    session_id = chat_data["session_id"]
 
     st.markdown(f"### 💬 {current_chat}")
     st.divider()
@@ -140,7 +151,8 @@ if page == "Chat":
                         CHAT_API_URL,
                         json={
                             "query": user_input,
-                            "k": 5
+                            "k": 5,
+                            "session_id": session_id  # ✅ Pass session_id for thread consistency
                         },
                         timeout=120
                     )
