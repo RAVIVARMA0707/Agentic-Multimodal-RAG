@@ -369,7 +369,7 @@ def generate_answer_node(state: RAGState) -> RAGState:
             "using only the information in the context below. "
             "Never mention 'the context', 'the provided text', 'the document', or any internal source references in your answer — "
             "just answer as if you know the information. "
-            "If the information is not available, say 'I don't have that information at the moment.' "
+            "If the information is not available, say 'I don't have that information at the moment. Please provide more details.' "
             "Always cite the source document and page number at the end."
             "Formate the answer good for reading."
             "Add bullet point,line breaks,bold fonts,italic,headings such things to make the reading experience better."
@@ -444,7 +444,7 @@ def build_rag_graph():
     {
         "RERANK": "reranker",
         "rewrite_query": "rewrite",
-        "generate_answer": "generate_answer"
+        "generate_answer": "join"
     }
     )
     graph.add_edge("nl2sql","join")
@@ -462,6 +462,8 @@ def build_rag_graph():
     graph.add_edge("generate_answer", END)
 
     return graph.compile(checkpointer=memory)
+
+
 
 def run_rag_agent(QueryRequest) -> AIResponse:
     print("Session ID:", QueryRequest.session_id)
@@ -482,6 +484,9 @@ def run_rag_agent(QueryRequest) -> AIResponse:
 
     rag_graph = build_rag_graph()
     # print(rag_graph.get_graph().draw_mermaid())
+    graph_image = rag_graph.get_graph().draw_mermaid_png()
+    with open("data/reranking_workflow.png", "wb") as f:
+        f.write(graph_image)
 
     final_state = rag_graph.invoke(
     initial_state,
